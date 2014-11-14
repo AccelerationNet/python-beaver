@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-
+import fcntl
 
 class PidFile(object):
     """Context manager that locks a pid file.  Implemented as class
@@ -19,7 +19,6 @@ class PidFile(object):
         """Writes the pid of the current process to the path"""
         self.pidfile = open(self.path, 'a+')
         try:
-            import fcntl
             fcntl.flock(self.pidfile.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
             raise SystemExit('Already running according to {0}'.format(self.path))
