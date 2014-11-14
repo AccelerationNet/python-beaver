@@ -8,7 +8,7 @@ import time
 from beaver.config import BeaverConfig
 from beaver.run_queue import run_queue
 from beaver.ssh_tunnel import create_ssh_tunnel
-from beaver.utils import setup_custom_logger, REOPEN_FILES
+from beaver.utils import setup_custom_logger, REOPEN_FILES, IS_WINDOWS
 from beaver.worker.worker import Worker
 
 def run(args=None):
@@ -56,19 +56,8 @@ def run(args=None):
 
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
-    signal.signal(signal.SIGQUIT, cleanup)
-
-    def create_queue_consumer():
-        process_args = (queue, beaver_config, logger)
-        proc = multiprocessing.Process(target=run_queue, args=process_args)
-
-        logger.info('Starting queue consumer')
-        proc.start()
-        return proc
-
-    def create_queue_producer():
-        worker = Worker(beaver_config, queue_consumer_function=create_queue_consumer, callback=queue.put, logger=logger)
-        worker.loop()
+    if not IS_WINDOWS:
+        signal.signal(signal.SIGQUIT, cleanup)
 
     while 1:
 
@@ -81,7 +70,8 @@ def run(args=None):
                 if worker_proc is None or not worker_proc.is_alive():
                     logger.info('Starting worker...')
                     t = time.time()
-                    worker_proc = multiprocessing.Process(target=create_queue_producer)
+                    beaver_config._logger = None
+                    worker_proc = multiprocessing.Process(target=create_queue_producer, args=(beaver_config, queue))
                     worker_proc.start()
                     logger.info('Working...')
                 worker_proc.join(10)
@@ -93,3 +83,21 @@ def run(args=None):
 
         except KeyboardInterrupt:
             pass
+
+
+def create_queue_producer(beaver_config, queue):
+    logger = setup_custom_logger('beaver', None, config=beaver_config)
+
+    def create_queue_consumer():
+        process_args = (queue, beaver_config, logger)
+        proc = multiprocessing.Process(target=run_queue, args=process_args)
+
+        logger.info('Starting queue consumer')
+        proc.start()
+        return proc
+
+    worker = Worker(beaver_config,
+                    queue_consumer_function=create_queue_consumer,
+                    callback=queue.put,
+                    logger=logger)
+    worker.loop()
